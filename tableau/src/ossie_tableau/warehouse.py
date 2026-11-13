@@ -57,6 +57,7 @@ class Warehouse:
     quote: str = '"'  # identifier quote character
     default_server: str = ""  # used when no server is given (BigQuery has a single endpoint)
     fold: str | None = None  # "upper" when the warehouse folds unquoted identifiers to upper case
+    qualify_relations: bool = True  # False: relations are [schema].[table] and the catalog is the connection's database attribute
 
     @property
     def dialect_preference(self) -> tuple[str, ...]:
@@ -90,7 +91,22 @@ BIGQUERY = Warehouse(
     default_server="googleapis.com/bigquery",
 )
 
-WAREHOUSES: dict[str, Warehouse] = {w.name: w for w in (SNOWFLAKE, BIGQUERY)}
+# Attribute set read from Tableau Cloud-saved Athena connections: `authentication="auth-user-pass"` is an IAM access-key
+# pair, `warehouse` is the S3 query-result location, and an empty `workgroup-auth-mode` runs in the default workgroup.
+# `dbname` carries the Athena data catalog and `schema` the Athena database. Relations are [database].[table]: Tableau takes
+# the catalog from `dbname`, so a 3-part source's first segment is replaced by the connection's catalog.
+ATHENA = Warehouse(
+    name="athena",
+    tableau_class="athena",
+    sqlglot_dialect="athena",
+    ossie_dialect="TRINO",
+    extra_attributes=("warehouse",),
+    omit_attributes=("odbc-connect-string-extras", "service"),
+    fixed_attributes=(("authentication", "auth-user-pass"), ("port", "443"), ("workgroup-auth-mode", "")),
+    qualify_relations=False,
+)
+
+WAREHOUSES: dict[str, Warehouse] = {w.name: w for w in (SNOWFLAKE, BIGQUERY, ATHENA)}
 DEFAULT = SNOWFLAKE
 
 

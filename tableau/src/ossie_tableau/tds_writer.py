@@ -37,7 +37,7 @@ from . import stash
 from .convert import Loss
 from .calc_parser import Untranslatable, from_sql as calc_from_sql
 from .formula import tokenize
-from .warehouse import BIGQUERY, SNOWFLAKE, Connection, expression_for
+from .warehouse import ATHENA, BIGQUERY, SNOWFLAKE, Connection, expression_for
 
 _REPLAYED_RAW = {
     "aliases", "semantic-values", "parameter", "filter", "drill-paths",
@@ -67,6 +67,12 @@ def SnowflakeConn(server: str, warehouse: str = "", database: str = "", schema: 
 def BigQueryConn(project: str, dataset: str = "", billing_project: str = "", username: str = "", server: str = BIGQUERY.default_server) -> Connection:
     """`project` is the data project (CATALOG); `billing_project` is the project that runs queries (EXECCATALOG, defaults to `project`)."""
     return Connection(BIGQUERY, server, project, dataset, "", username, {"project": project, "EXECCATALOG": billing_project or project})
+
+
+def AthenaConn(server: str, catalog: str = "", database: str = "", s3_staging_dir: str = "", username: str = "") -> Connection:
+    """`server` is the regional endpoint (athena.<region>.amazonaws.com); `catalog` is the Athena data catalog (`dbname`),
+    `database` the Athena database (`schema`) and `s3_staging_dir` the query-result location (`warehouse`)."""
+    return Connection(ATHENA, server, catalog, database, "", username, {"warehouse": s3_staging_dir})
 
 
 @dataclass
@@ -253,12 +259,14 @@ def _unwrap_parens(s: str) -> str:
     return s
 
 
-def _source_relation(ds: OssieDataset, nc: str, db: str = "") -> ET.Element:
+def _source_relation(ds: OssieDataset, nc: str, db: str = "", qualify: bool = True) -> ET.Element:
     s = ds.source.strip()
     if re.match(r"(?is)^\(?\s*(select|with)\b", s):
         return _el("relation", {"connection": nc, "name": ds.name, "type": "text"}, text=_unwrap_parens(s))
     parts = [p.strip('"`') for p in s.split(".")]
-    if db and len(parts) == 2:
+    if not qualify:
+        parts = parts[-2:]  # [schema].[table]; the catalog comes from the connection (Athena `dbname`)
+    elif db and len(parts) == 2:
         parts = [db, *parts]  # Tableau Cloud fails multi-hop relationships on 2-part paths; keep the fully-qualified form
     return _el("relation", {"connection": nc, "name": ds.name, "table": ".".join(f"[{p}]" for p in parts), "type": "table"})
 
@@ -507,7 +515,7 @@ def write_tds(doc: OssieDocument, conn: Connection) -> TdsResult:
         _visit(d)
     for d in doc.datasets:
         _visit(d)
-    collection = _el("relation", {"type": "collection"}, *[_source_relation(d, nc, conn.database) for d in collection_order])
+    collection = _el("relation", {"type": "collection"}, *[_source_relation(d, nc, conn.database, wh.qualify_relations) for d in collection_order])
     maps: list[ET.Element] = []
     records = []
     for ds in doc.datasets:
@@ -650,7 +658,7 @@ def write_tds(doc: OssieDocument, conn: Connection) -> TdsResult:
     # --- object graph
     objects = []
     for d in doc.datasets:
-        okids = [_el("properties", {"context": ""}, _source_relation(d, nc, conn.database))]
+        okids = [_el("properties", {"context": ""}, _source_relation(d, nc, conn.database, wh.qualify_relations))]
         if (aiel := _ai_context_el(d.ai_context)) is not None:
             okids.append(aiel)
         objects.append(_el("object", {"caption": d.name, "id": oid[d.name]}, *okids))

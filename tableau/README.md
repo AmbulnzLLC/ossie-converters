@@ -22,7 +22,7 @@ under the License.
 Two-way converter between Tableau classic data sources and [Apache Ossie](https://ossie.apache.org/).
 
 - **Tableau to Ossie:** `.tds`, `.twb`, `.tdsx` and `.twbx` files to Ossie YAML (`ossie-tableau convert`).
-- **Ossie to Tableau:** Ossie YAML to a logical-layer `.tds` (`ossie-tableau to-tds`; Snowflake and BigQuery are supported).
+- **Ossie to Tableau:** Ossie YAML to a logical-layer `.tds` (`ossie-tableau to-tds`; Snowflake, BigQuery and Athena are supported).
 
 Every element that cannot be represented is reported as a classified loss and never dropped silently (see [Known limitations and lossiness](#known-limitations-and-lossiness) and [LIMITATIONS.md](LIMITATIONS.md)).
 
@@ -80,7 +80,7 @@ Add `--strict` (exit 1 on any `error`-severity loss) or `--strict-kinds k1,k2` (
 - `.twbx`/`.tdsx` archives are read in memory (no extraction); **every** inner `.twb`/`.tds` is converted, and output names are prefixed with the inner file name when there is more than one.
 - XML with `DOCTYPE`/`ENTITY` declarations, or members larger than 256 MiB, are rejected (`FAIL`, exit code 1).
 - Each data source becomes its own document. `manifest.json` in the output directory lists every output, skipped data source and failure.
-- `--warehouse-type {snowflake,bigquery}` overrides connection-class detection. Unregistered classes (postgres, redshift...) raise an `unknown_warehouse` loss.
+- `--warehouse-type {athena,bigquery,snowflake}` overrides connection-class detection. Unregistered classes (postgres, redshift...) raise an `unknown_warehouse` loss.
 - `--no-clobber` refuses to overwrite existing outputs; `-q` prints only problems.
 - Data blending across worksheets is not modeled and raises a `blend` loss. Each loss's `kind` is its stable code and `name` the object it refers to.
 
@@ -103,7 +103,7 @@ Every loss has a stable `kind` (its issue code) and a `name` (the object it refe
 
 ## Supported warehouses
 
-`src/ossie_tableau/warehouse.py` describes each warehouse (sqlglot dialect, Ossie dialect names, Tableau connection class and attributes). Entries: `snowflake` and `bigquery`. Reading a saved connection and writing `to-tds` use the descriptor, selected by `--warehouse-type` (BigQuery also takes `--project`, plus `--database`/`--schema` for the dataset). A datasource's warehouse is inferred from its connection class, and its calculations are tagged with that warehouse's Ossie dialect. The calculation catalogue (`calc_catalog.py`) holds Snowflake templates; other warehouses use per-dialect `Override` templates or the `PORTABLE` allowlist, and anything else is reported as not translated rather than guessed. BigQuery results are in [docs/expression-mapping.md](docs/expression-mapping.md) and were checked against live BigQuery. To add a warehouse, add a `Warehouse` entry, overrides, and tests in `tests/test_warehouse.py` and `tests/test_calc_bigquery.py`.
+`src/ossie_tableau/warehouse.py` describes each warehouse (sqlglot dialect, Ossie dialect names, Tableau connection class and attributes). Entries: `snowflake`, `bigquery` and `athena`. Reading a saved connection and writing `to-tds` use the descriptor, selected by `--warehouse-type` (BigQuery also takes `--project`, plus `--database`/`--schema` for the dataset). A datasource's warehouse is inferred from its connection class, and its calculations are tagged with that warehouse's Ossie dialect. The calculation catalogue (`calc_catalog.py`) holds Snowflake templates; other warehouses use per-dialect `Override` templates or the `PORTABLE` allowlist, and anything else is reported as not translated rather than guessed. BigQuery results are in [docs/expression-mapping.md](docs/expression-mapping.md) and were checked against live BigQuery. Athena (`--warehouse-type athena`: `--server athena.<region>.amazonaws.com`, `--database` the data catalog, `--schema` the Athena database, `--warehouse` the S3 query-result location) writes `[database].[table]` relations with the catalog in `dbname`, so a 3-part source's first segment is replaced by `--database`; its metrics prefer the `TRINO` dialect, and only plain aggregates translate back from Tableau. To add a warehouse, add a `Warehouse` entry, overrides, and tests in `tests/test_warehouse.py` and `tests/test_calc_bigquery.py`.
 
 ## Testing
 
@@ -150,4 +150,4 @@ Other Tableau-to-Ossie limits:
 - `relationship_key_synthesized`: a join column that is not a declared field is added as a hidden column.
 - `datatype_defaulted`: a field with no datatype gets one from its dimension flags.
 - Time/datetime-with-timezone, time and opaque types map to the closest Tableau type.
-- No credentials are written. Only Snowflake and BigQuery connections are written; data sources have a logical layer, not extracts.
+- No credentials are written. Only Snowflake, BigQuery and Athena connections are written; data sources have a logical layer, not extracts.
