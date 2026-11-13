@@ -37,7 +37,7 @@ from . import stash
 from .convert import Loss
 from .calc_parser import Untranslatable, from_sql as calc_from_sql
 from .formula import tokenize
-from .warehouse import BIGQUERY, SNOWFLAKE, Connection
+from .warehouse import BIGQUERY, SNOWFLAKE, Connection, expression_for
 
 _REPLAYED_RAW = {
     "aliases", "semantic-values", "parameter", "filter", "drill-paths",
@@ -138,11 +138,7 @@ def _tableau_ext(obj) -> dict:
 
 
 def _dialect(expr, *names: str) -> str | None:
-    for n in names:
-        for d in expr.dialects:
-            if d.dialect.value == n:
-                return d.expression
-    return None
+    return next((s for n in names if (s := expression_for(expr, n)) is not None), None)
 
 
 def _pick(expr, wh) -> tuple[str | None, str | None]:

@@ -43,7 +43,7 @@ def test_registry_and_lookup():
     assert warehouse.get("snowflake") is warehouse.SNOWFLAKE is warehouse.DEFAULT
     assert warehouse.by_tableau_class("snowflake") is warehouse.SNOWFLAKE
     assert warehouse.by_tableau_class("postgres") is None
-    assert warehouse.SNOWFLAKE.dialect_preference == ("SNOWFLAKE", "ANSI_SQL")
+    assert warehouse.SNOWFLAKE.dialect_preference == ("SNOWFLAKE", "ANSI_SQL", "OSSIE_SQL_2026")
 
 
 def test_unknown_warehouse_is_a_clear_error():
@@ -85,7 +85,7 @@ def test_cli_rejects_unknown_warehouse_type(tmp_path, capsys):
 def test_bigquery_registry_and_lookup():
     assert warehouse.get("bigquery") is warehouse.BIGQUERY
     assert warehouse.by_tableau_class("bigquery") is warehouse.BIGQUERY
-    assert warehouse.BIGQUERY.dialect_preference == ("BIGQUERY", "ANSI_SQL")
+    assert warehouse.BIGQUERY.dialect_preference == ("BIGQUERY", "ANSI_SQL", "OSSIE_SQL_2026")
 
 
 def test_bigquery_connection_block():
@@ -130,7 +130,7 @@ def test_bigquery_ansi_quoted_identifiers_are_not_string_literals(tmp_path):
     p.write_text(src)
     (r,) = convert_file(p, warehouse=warehouse.BIGQUERY)
     month = next(f for f in r.document.datasets[0].fields if f.name == "Order_Month")
-    bq = next(d.expression for d in month.expression.dialects if d.dialect.value == "BIGQUERY")
+    bq = next(d.expression for d in month.expression.dialects if d.dialect == "BIGQUERY")
     assert "'Ship Date'" not in bq
     assert "Ship Date" in bq
 
@@ -160,7 +160,7 @@ def test_bigquery_categorical_group_escapes_quotes_for_bigquery():
            "<calculation class='categorical-bin' column='[name]' new-bin='true'>"
            "<bin value='&quot;A&quot;'><value>&quot;It&apos;s&quot;</value></bin></calculation></column>")
     r = convert_datasource(ds(BASE, xml), warehouse=warehouse.BIGQUERY)
-    by = {d.dialect.value: d.expression for d in next(f for f in r.document.datasets[0].fields if f.name == "Grp").expression.dialects}
+    by = {d.dialect: d.expression for d in next(f for f in r.document.datasets[0].fields if f.name == "Grp").expression.dialects}
     assert "It''s" in by["ANSI_SQL"]
     assert "It\\'s" in by["BIGQUERY"] and "''s" not in by["BIGQUERY"]
 

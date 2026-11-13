@@ -26,6 +26,22 @@ import re
 from dataclasses import dataclass, field
 
 ANSI_SQL = "ANSI_SQL"
+OSSIE_SQL = "OSSIE_SQL_2026"  # the dialect of an expression's top-level `sql` (Ossie 0.2: the primary, portable form)
+PORTABLE_DIALECTS = (ANSI_SQL, OSSIE_SQL)  # read with sqlglot's generic dialect, not the warehouse's
+
+
+def dialect_name(dialect) -> str:
+    """An expression dialect as a plain string: the Ossie model accepts any string, and well-known ones may arrive as enum members."""
+    return getattr(dialect, "value", dialect)
+
+
+def expression_for(expr, dialect: str) -> str | None:
+    """The SQL text of `expr` in `dialect`, or None. The top-level `sql` is the OSSIE_SQL_2026 form and wins over a dialects entry."""
+    if expr is None:
+        return None
+    if dialect == OSSIE_SQL and getattr(expr, "sql", None):
+        return expr.sql
+    return next((d.expression for d in expr.dialects or () if dialect_name(d.dialect) == dialect), None)
 
 
 @dataclass(frozen=True)
@@ -43,8 +59,8 @@ class Warehouse:
     fold: str | None = None  # "upper" when the warehouse folds unquoted identifiers to upper case
 
     @property
-    def dialect_preference(self) -> tuple[str, str]:
-        return (self.ossie_dialect, ANSI_SQL)
+    def dialect_preference(self) -> tuple[str, ...]:
+        return (self.ossie_dialect, ANSI_SQL, OSSIE_SQL)
 
 
 # Fallback for connection classes that are not registered: generic sqlglot dialect, ANSI_SQL expressions. Not in WAREHOUSES (not selectable).
