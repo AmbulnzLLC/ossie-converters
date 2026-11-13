@@ -147,3 +147,16 @@ BigQuery uses its own template where one is written; otherwise the Snowflake tem
 | `RAWSQL_REAL` | `` | unmappable | pass-through SQL; never emitted as RAWSQL (use the rawsql loss) |
 | `REGEXP_MATCH` | `` | unmappable | regex flavours differ between Tableau (ICU) and Snowflake |
 | `MAKEDATE` | `` | unmappable | no portable equivalent without a dialect-specific function |
+
+## Athena
+
+Athena (Trino engine) translates only the functions below, from the Snowflake template; every other function is `unmappable` for Athena ("no verified athena translation yet"), and the metric keeps its TABLEAU expression with `sql_untranslated`.
+
+| Tableau | Athena SQL template | Status |
+|---|---|---|
+| `SUM` | `SUM(__a0)` | direct |
+| `AVG` | `AVG(__a0)` | direct |
+| `MIN` | `MIN(__a0)` | direct |
+| `MAX` | `MAX(__a0)` | direct |
+| `COUNT` | `COUNT(__a0)` | direct |
+| `COUNTD` | `COUNT(DISTINCT __a0)` | direct |

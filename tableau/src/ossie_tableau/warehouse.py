@@ -26,6 +26,22 @@ import re
 from dataclasses import dataclass, field
 
 ANSI_SQL = "ANSI_SQL"
+OSSIE_SQL = "OSSIE_SQL_2026"  # the dialect of an expression's top-level `sql` (Ossie 0.2: the primary, portable form)
+PORTABLE_DIALECTS = (ANSI_SQL, OSSIE_SQL)  # read with sqlglot's generic dialect, not the warehouse's
+
+
+def dialect_name(dialect) -> str:
+    """An expression dialect as a plain string: the Ossie model accepts any string, and well-known ones may arrive as enum members."""
+    return getattr(dialect, "value", dialect)
+
+
+def expression_for(expr, dialect: str) -> str | None:
+    """The SQL text of `expr` in `dialect`, or None. The top-level `sql` is the OSSIE_SQL_2026 form and wins over a dialects entry."""
+    if expr is None:
+        return None
+    if dialect == OSSIE_SQL and getattr(expr, "sql", None):
+        return expr.sql
+    return next((d.expression for d in expr.dialects or () if dialect_name(d.dialect) == dialect), None)
 
 
 @dataclass(frozen=True)
@@ -41,10 +57,11 @@ class Warehouse:
     quote: str = '"'  # identifier quote character
     default_server: str = ""  # used when no server is given (BigQuery has a single endpoint)
     fold: str | None = None  # "upper" when the warehouse folds unquoted identifiers to upper case
+    qualify_relations: bool = True  # False: relations are [schema].[table] and the catalog is the connection's database attribute
 
     @property
-    def dialect_preference(self) -> tuple[str, str]:
-        return (self.ossie_dialect, ANSI_SQL)
+    def dialect_preference(self) -> tuple[str, ...]:
+        return (self.ossie_dialect, ANSI_SQL, OSSIE_SQL)
 
 
 # Fallback for connection classes that are not registered: generic sqlglot dialect, ANSI_SQL expressions. Not in WAREHOUSES (not selectable).
@@ -74,7 +91,22 @@ BIGQUERY = Warehouse(
     default_server="googleapis.com/bigquery",
 )
 
-WAREHOUSES: dict[str, Warehouse] = {w.name: w for w in (SNOWFLAKE, BIGQUERY)}
+# Attribute set read from Tableau Cloud-saved Athena connections: `authentication="auth-user-pass"` is an IAM access-key
+# pair, `warehouse` is the S3 query-result location, and an empty `workgroup-auth-mode` runs in the default workgroup.
+# `dbname` carries the Athena data catalog and `schema` the Athena database. Relations are [database].[table]: Tableau takes
+# the catalog from `dbname`, so a 3-part source's first segment is replaced by the connection's catalog.
+ATHENA = Warehouse(
+    name="athena",
+    tableau_class="athena",
+    sqlglot_dialect="athena",
+    ossie_dialect="TRINO",
+    extra_attributes=("warehouse",),
+    omit_attributes=("odbc-connect-string-extras", "service"),
+    fixed_attributes=(("authentication", "auth-user-pass"), ("port", "443"), ("workgroup-auth-mode", "")),
+    qualify_relations=False,
+)
+
+WAREHOUSES: dict[str, Warehouse] = {w.name: w for w in (SNOWFLAKE, BIGQUERY, ATHENA)}
 DEFAULT = SNOWFLAKE
 
 

@@ -33,7 +33,7 @@ from . import stash
 from .calc_catalog import CATALOG
 from .formula import masked, refs as formula_refs, sub_refs, tokenize
 from .losses import spec as loss_spec
-from .warehouse import DEFAULT, GENERIC, WAREHOUSES, Warehouse, by_tableau_class, needs_quote
+from .warehouse import ANSI_SQL, DEFAULT, GENERIC, OSSIE_SQL, PORTABLE_DIALECTS, WAREHOUSES, Warehouse, by_tableau_class, dialect_name, expression_for, needs_quote
 
 from ossie.models import (
     OssieAIContextObject,
@@ -808,9 +808,9 @@ def _make_sql_resolver(ds_fields: dict, wh: Warehouse = DEFAULT, addressing: dic
                 type_of[key] = _type(f)
                 by_name.setdefault(f.name, set()).add(key)
                 for pref in preference:
-                    d = next((x for x in f.expression.dialects if x.dialect.value == pref), None)
-                    if d:
-                        sql_of[key] = (d.expression, None if pref == "ANSI_SQL" else wh.sqlglot_dialect)
+                    s = expression_for(f.expression, pref)
+                    if s is not None:
+                        sql_of[key] = (s, None if pref in PORTABLE_DIALECTS else wh.sqlglot_dialect)
                         break
             seen[tn] = len(fs)
 
@@ -1388,11 +1388,12 @@ def convert_datasource(ds: ET.Element, source_file: str = "", params: list[ET.El
             elif (k := internal_of.get(ref)) in emitted:
                 et, ename, _dt = emitted[k]
                 ef = next((x for x in ds_fields[et.name] if x.name == ename), None)
-                d = next((x for pref in (target_dialect, OssieDialect.ANSI_SQL) for x in ef.expression.dialects if x.dialect == pref), None) if ef else None
+                d = next((s for pref in (dialect_name(target_dialect), ANSI_SQL, OSSIE_SQL)
+                          if (s := expression_for(ef.expression, pref)) is not None), None) if ef else None
                 if d is None:
                     return False
                 tabs.add(et.name)
-                subs.append(f"({d.expression})")
+                subs.append(f"({d})")
             else:
                 return False
         if len(tabs) > 1 or not tabs:

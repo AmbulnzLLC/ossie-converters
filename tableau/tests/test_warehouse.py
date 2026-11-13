@@ -24,7 +24,7 @@ import pytest
 from ossie.models import OssieDocument
 from ossie_tableau import warehouse
 from ossie_tableau.cli import main
-from ossie_tableau.tds_writer import BigQueryConn, SnowflakeConn, write_tds
+from ossie_tableau.tds_writer import AthenaConn, BigQueryConn, SnowflakeConn, write_tds
 
 pytestmark = pytest.mark.unit
 
@@ -43,7 +43,7 @@ def test_registry_and_lookup():
     assert warehouse.get("snowflake") is warehouse.SNOWFLAKE is warehouse.DEFAULT
     assert warehouse.by_tableau_class("snowflake") is warehouse.SNOWFLAKE
     assert warehouse.by_tableau_class("postgres") is None
-    assert warehouse.SNOWFLAKE.dialect_preference == ("SNOWFLAKE", "ANSI_SQL")
+    assert warehouse.SNOWFLAKE.dialect_preference == ("SNOWFLAKE", "ANSI_SQL", "OSSIE_SQL_2026")
 
 
 def test_unknown_warehouse_is_a_clear_error():
@@ -85,7 +85,7 @@ def test_cli_rejects_unknown_warehouse_type(tmp_path, capsys):
 def test_bigquery_registry_and_lookup():
     assert warehouse.get("bigquery") is warehouse.BIGQUERY
     assert warehouse.by_tableau_class("bigquery") is warehouse.BIGQUERY
-    assert warehouse.BIGQUERY.dialect_preference == ("BIGQUERY", "ANSI_SQL")
+    assert warehouse.BIGQUERY.dialect_preference == ("BIGQUERY", "ANSI_SQL", "OSSIE_SQL_2026")
 
 
 def test_bigquery_connection_block():
@@ -130,7 +130,7 @@ def test_bigquery_ansi_quoted_identifiers_are_not_string_literals(tmp_path):
     p.write_text(src)
     (r,) = convert_file(p, warehouse=warehouse.BIGQUERY)
     month = next(f for f in r.document.datasets[0].fields if f.name == "Order_Month")
-    bq = next(d.expression for d in month.expression.dialects if d.dialect.value == "BIGQUERY")
+    bq = next(d.expression for d in month.expression.dialects if d.dialect == "BIGQUERY")
     assert "'Ship Date'" not in bq
     assert "Ship Date" in bq
 
@@ -160,7 +160,7 @@ def test_bigquery_categorical_group_escapes_quotes_for_bigquery():
            "<calculation class='categorical-bin' column='[name]' new-bin='true'>"
            "<bin value='&quot;A&quot;'><value>&quot;It&apos;s&quot;</value></bin></calculation></column>")
     r = convert_datasource(ds(BASE, xml), warehouse=warehouse.BIGQUERY)
-    by = {d.dialect.value: d.expression for d in next(f for f in r.document.datasets[0].fields if f.name == "Grp").expression.dialects}
+    by = {d.dialect: d.expression for d in next(f for f in r.document.datasets[0].fields if f.name == "Grp").expression.dialects}
     assert "It''s" in by["ANSI_SQL"]
     assert "It\\'s" in by["BIGQUERY"] and "''s" not in by["BIGQUERY"]
 
@@ -243,3 +243,102 @@ def test_bigquery_ansi_quoted_column_is_a_physical_column_not_a_string_literal()
     xml = write_tds(doc, BigQueryConn("p", "d")).xml
     assert "<remote-name>Postal Code</remote-name>" in xml
     assert "formula=\"'Postal Code'\"" not in xml
+
+
+# --- Athena ---------------------------------------------------------------------------------------------------------
+
+ATHENA_DOC = OssieDocument.model_validate({
+    "name": "m",
+    "datasets": [
+        {"name": "orders", "source": "lakehouse.sales.orders", "primary_key": ["id"], "fields": [
+            {"name": "id", "expression": {"sql": "id"}, "datatype": "Integer"},
+            {"name": "customer_id", "expression": {"sql": "customer_id"}, "datatype": "Integer"},
+            {"name": "amount", "expression": {"sql": "amount"}, "datatype": "Decimal"}]},
+        {"name": "customers", "source": "sales.customers", "primary_key": ["id"], "fields": [
+            {"name": "id", "expression": {"sql": "id"}, "datatype": "Integer"},
+            {"name": "region", "expression": {"sql": "region"}, "datatype": "String"}]}],
+    "relationships": [{"name": "orders_to_customers", "from": "orders", "to": "customers",
+                       "from_columns": ["customer_id"], "to_columns": ["id"]}],
+    "metrics": [
+        {"name": "order_count", "expression": {"sql": "COUNT(orders.id)", "dialects": [{"dialect": "TRINO", "expression": "COUNT(orders.id)"}]}},
+        {"name": "revenue", "expression": {"sql": "COUNT(orders.id)", "dialects": [{"dialect": "TRINO", "expression": "SUM(orders.amount)"}]}}],
+})
+
+
+def _athena():
+    return AthenaConn("athena.example-region.amazonaws.com", "example_catalog", "sales", "s3://example-results/")
+
+
+def test_athena_registry_and_lookup():
+    assert warehouse.get("athena") is warehouse.ATHENA
+    assert warehouse.by_tableau_class("athena") is warehouse.ATHENA
+    assert warehouse.ATHENA.dialect_preference == ("TRINO", "ANSI_SQL", "OSSIE_SQL_2026")
+    assert warehouse.ATHENA.sqlglot_dialect == "athena"
+    assert warehouse.ATHENA.qualify_relations is False
+
+
+def test_athena_conn_factory_builds_a_connection():
+    assert _athena() == warehouse.Connection(warehouse.ATHENA, "athena.example-region.amazonaws.com", "example_catalog", "sales",
+                                             "", "", {"warehouse": "s3://example-results/"})
+
+
+def test_athena_connection_block():
+    xml = write_tds(ATHENA_DOC, _athena()).xml
+    node = ET.fromstring(xml).find(".//named-connection")
+    assert node.get("name").startswith("athena.")
+    assert dict(node.find("connection").attrib) == {
+        "authentication": "auth-user-pass", "class": "athena", "dbname": "example_catalog", "one-time-sql": "", "port": "443",
+        "schema": "sales", "server": "athena.example-region.amazonaws.com", "username": "", "warehouse": "s3://example-results/",
+        "workgroup-auth-mode": ""}
+
+
+def test_athena_relations_are_schema_and_table_with_the_catalog_from_the_connection():
+    root = ET.fromstring(write_tds(ATHENA_DOC, _athena()).xml)
+    tables = {r.get("name"): r.get("table") for r in root.iter("relation") if r.get("type") == "table"}
+    # the 3-part source's first segment (a Spark/Glue catalog name) is replaced by the connection's dbname, and a
+    # 2-part source is not prefixed with it
+    assert tables == {"orders": "[sales].[orders]", "customers": "[sales].[customers]"}
+
+
+def test_snowflake_still_qualifies_two_part_sources():
+    root = ET.fromstring(write_tds(ATHENA_DOC, SnowflakeConn("a.snowflakecomputing.com", "WH", "DB", "SCH")).xml)
+    tables = {r.get("table") for r in root.iter("relation") if r.get("type") == "table"}
+    assert tables == {"[lakehouse].[sales].[orders]", "[DB].[sales].[customers]"}
+
+
+def test_athena_metrics_prefer_the_trino_dialect_and_convert_without_loss():
+    res = write_tds(ATHENA_DOC, _athena())
+    assert [x.kind for x in res.losses] == []
+    root = ET.fromstring(res.xml)
+    formulas = {c.get("caption"): c.find("calculation").get("formula") for c in root.iter("column") if c.find("calculation") is not None}
+    assert formulas == {"order_count": "COUNT([id])", "revenue": "SUM([amount])"}
+    assert len(root.findall(".//object-graph/relationships/relationship")) == 1
+
+
+def test_athena_cli_to_tds(tmp_path):
+    import json
+    import yaml
+    src = tmp_path / "m.ossie.yaml"
+    src.write_text(yaml.safe_dump(ATHENA_DOC.model_dump(mode="json", by_alias=True, exclude_none=True)))
+    rc = main(["to-tds", str(src), "-o", str(tmp_path / "out"), "--warehouse-type", "athena",
+               "--server", "athena.example-region.amazonaws.com", "--database", "example_catalog", "--schema", "sales",
+               "--warehouse", "s3://example-results/"])
+    assert rc == 0
+    conn = ET.parse(tmp_path / "out" / "m.tds").getroot().find(".//named-connection/connection")
+    assert (conn.get("class"), conn.get("dbname"), conn.get("schema"), conn.get("warehouse")) == (
+        "athena", "example_catalog", "sales", "s3://example-results/")
+    assert json.loads((tmp_path / "out" / "m.tds.loss.json").read_text()) == []
+
+
+def test_athena_tds_reads_back_with_the_catalog_qualified_source_and_trino_sql(tmp_path):
+    from ossie_tableau.convert import convert_file
+    path = tmp_path / "m.tds"
+    path.write_text(write_tds(ATHENA_DOC, _athena()).xml)
+    [res] = convert_file(path)
+    sources = {d.name: d.source for d in res.document.datasets}
+    assert sources == {"orders": "example_catalog.sales.orders", "customers": "example_catalog.sales.customers"}
+    dialects = {warehouse.dialect_name(d.dialect) for m in res.document.metrics for d in m.expression.dialects}
+    assert "TRINO" in dialects
+    # written again, the read-back model gives the same relations
+    again = ET.fromstring(write_tds(res.document, _athena()).xml)
+    assert {r.get("table") for r in again.iter("relation") if r.get("type") == "table"} == {"[sales].[orders]", "[sales].[customers]"}
