@@ -113,7 +113,7 @@ def test_calc_classification(formula, datatype, expected):
 def test_rawsql_becomes_snowflake_field():
     r = convert_datasource(ds(BASE, calc("RAWSQL_STR('UPPER(%1)', [name])", "string", caption="Up")))
     f = _fields_by_name(r)["Up"]
-    assert [(d.dialect.value, d.expression) for d in f.expression.dialects] == [("SNOWFLAKE", 'UPPER(("name"))')]
+    assert [(d.dialect, d.expression) for d in f.expression.dialects] == [("SNOWFLAKE", 'UPPER(("name"))')]
     assert "rawsql_translated" in kinds(r) and r.stats["unconverted_calcs"] == 0
 
 
@@ -418,7 +418,7 @@ def test_b5_row_level_calc_becomes_field_and_metric_can_use_it():
     cols = calc("[amt] * 2", name="Calculation_1", caption="Dbl") + calc("SUM([Calculation_1])", name="Calculation_2", caption="Tot")
     r = convert_datasource(ds(BASE, cols))
     f = _fields(r)["Dbl"]
-    assert f.expression.dialects[0].dialect.value == "TABLEAU"
+    assert f.expression.dialects[0].dialect == "TABLEAU"
     assert f.expression.dialects[0].expression == "[amt] * 2"
     assert r.document.metrics[0].expression.dialects[0].expression == "SUM([orders].[Dbl])"
 
@@ -499,7 +499,7 @@ STR2 = rel() + recs("orders", [("city", "string"), ("state", "string"), ("amt", 
 
 def _snow(r, name):
     f = _fields_by_name(r)[name]
-    return next(d.expression for d in f.expression.dialects if d.dialect.value == "SNOWFLAKE")
+    return next(d.expression for d in f.expression.dialects if d.dialect == "SNOWFLAKE")
 
 
 def test_plus_on_two_string_columns_is_concatenation():
@@ -554,7 +554,7 @@ def test_resolver_built_once_per_datasource(monkeypatch):
 
 
 def _snow_expr(r, name):
-    return next(d.expression for d in _fields_by_name(r)[name].expression.dialects if d.dialect.value == "SNOWFLAKE")
+    return next(d.expression for d in _fields_by_name(r)[name].expression.dialects if d.dialect == "SNOWFLAKE")
 
 
 def test_rawsql_over_calc_inlines_the_calc_sql_not_its_name():

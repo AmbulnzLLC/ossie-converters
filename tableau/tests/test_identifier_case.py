@@ -86,7 +86,7 @@ def test_snowflake_mixed_case_columns_and_tables_are_quoted():
     (d,) = r.document.datasets
     assert d.source == 'DB.PUBLIC."OrderLines"'
     assert _field_sql(r) == {"OrderId": '"OrderId"', "AMOUNT": "AMOUNT", "region": '"region"'}
-    metric = next(x.expression for x in r.document.metrics[0].expression.dialects if x.dialect.value == "SNOWFLAKE")
+    metric = next(x.expression for x in r.document.metrics[0].expression.dialects if x.dialect == "SNOWFLAKE")
     assert '"OrderId"' in metric and '"AMOUNT"' not in metric
 
 

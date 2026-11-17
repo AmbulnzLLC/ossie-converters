@@ -47,7 +47,7 @@ What the Tableau to Ossie converter does not do, or does only approximately. Not
 
 ### Ossie to Tableau (`to-tds`)
 
-- Snowflake and BigQuery connections are written (`warehouse.py`). Calc catalog templates are Snowflake SQL; BigQuery uses overrides plus a portable allowlist, and `MEDIAN` has no BigQuery translation. Output has a logical layer; no extracts and no credentials are written.
+- Snowflake, BigQuery and Athena connections are written (`warehouse.py`). Athena relations are `[database].[table]` with the catalog in `dbname`, so a 3-part source's first segment is replaced by the connection's catalog; Athena translates only `SUM`/`AVG`/`MIN`/`MAX`/`COUNT`/`COUNTD` from Tableau to SQL, and its connection attributes (`auth-user-pass`, port 443, default workgroup) are fixed. Calc catalog templates are Snowflake SQL; BigQuery uses overrides plus a portable allowlist, and `MEDIAN` has no BigQuery translation. Output has a logical layer; no extracts and no credentials are written.
 - An expression with no TABLEAU dialect that is not a bare column or simple aggregate, and cannot be translated back, is dropped (`untranslatable_expression`). The converter does not guess and does not emit RAWSQL.
 - Time, timezone and opaque types map to the closest Tableau type. Fields with no datatype get one from their dimension flags.
 - Tableau names fields by physical column, so the Ossie name survives only as the caption.

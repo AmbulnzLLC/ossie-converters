@@ -76,6 +76,22 @@ def render_expr() -> str:
         b = for_dialect(e, "bigquery")
         bsql = sqlglot.transpile(b.sql, read="snowflake", write="bigquery")[0] if b.sql and b.sql_dialect == "snowflake" else b.sql
         lines.append(f"| `{e.name}` | `{(bsql or '').replace('|', '/')}` | {b.status} | {b.note.replace('|', '/')} |")
+    lines += [
+        "",
+        "## Athena",
+        "",
+        "Athena (Trino engine) translates only the functions below, from the Snowflake template; every other function is `unmappable` "
+        "for Athena (\"no verified athena translation yet\"), and the metric keeps its TABLEAU expression with `sql_untranslated`.",
+        "",
+        "| Tableau | Athena SQL template | Status |",
+        "|---|---|---|",
+    ]
+    for e in CALCS:
+        a = for_dialect(e, "athena")
+        if a.status == "unmappable" or not a.sql:
+            continue
+        asql = sqlglot.transpile(a.sql, read="snowflake", write="athena")[0] if a.sql_dialect == "snowflake" else a.sql
+        lines.append(f"| `{e.name}` | `{asql.replace('|', '/')}` | {a.status} |")
     return "\n".join(lines) + "\n"
 
 

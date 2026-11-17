@@ -87,7 +87,10 @@ _BQ = {
 # Entries whose Snowflake template transpiles to BigQuery unchanged (checked by tests/test_calc_bigquery.py).
 PORTABLE: dict[str, frozenset[str]] = {"bigquery": frozenset((
     "SUM AVG MIN MAX COUNT COUNTD STDEV STDEVP VAR VARP CORR COVAR COVARP ATTR ZN IFNULL ISNULL TODAY LEFT RIGHT MID LEN UPPER LOWER TRIM REPLACE ROUND ABS "
-    "CEILING FLOOR POWER SQRT LN EXP SIGN INT FLOAT STR DATE IIF").split())}
+    "CEILING FLOOR POWER SQRT LN EXP SIGN INT FLOAT STR DATE IIF").split()),
+    # Athena (Trino engine): only the plain aggregates, whose Snowflake template is standard SQL that Trino runs unchanged.
+    # Everything else stays "no verified athena translation yet" until checked against Athena.
+    "athena": frozenset("SUM AVG MIN MAX COUNT COUNTD".split())}
 
 
 def _e(group, name, arity, sql, status="direct", result="any", note="", **overrides):
